@@ -27,7 +27,7 @@
 # device. The lock file is shared with ca-sync.ps1, so runs never overlap.
 
 set -u
-CLIENT_VERSION="4.1.1"
+CLIENT_VERSION="4.1.2"
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER_FILES="ca-sync ca-sync.sh ca-sync.ps1 ca-sync.cmd server-url"
 UA="ContextAcceleratorSync/$CLIENT_VERSION"
@@ -211,7 +211,9 @@ save_device() {
 
 # The lock is .ca-sync/lock, the same file ca-sync.ps1 uses, so a scheduled run
 # in the VM and a run on the computer never overlap. A lock held by another
-# machine is judged by its age only.
+# machine is judged by its age only. A scheduled run in the desktop app may not be
+# allowed to delete files in the folder, so a released lock can be an empty file:
+# an empty lock is free.
 lock_host() { local h; h="$(hostname 2>/dev/null)"; printf '%s' "${h:-${HOSTNAME:-ca-sync-sh}}"; }
 
 lock_write() {
@@ -219,10 +221,15 @@ lock_write() {
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$1" ) 2>/dev/null
 }
 
+lock_overwrite() {
+  printf '{"pid":%s,"host":%s,"started_at":"%s"}' "$$" "$(json_str "$(lock_host)")"     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$1" 2>/dev/null
+}
+
 lock_take() {
   local f="$1/.ca-sync/lock" pid host now mtime
   rm -rf "$1/.ca-sync/lock.d" 2>/dev/null  # left by 4.0.0
   lock_write "$f" && return 0
+  if [ ! -s "$f" ]; then lock_overwrite "$f"; return; fi
   pid="$(tr -d '\r\n' < "$f" 2>/dev/null | sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')"
   host="$(json_field "$f" host 2>/dev/null)"
   now=$(date +%s)
@@ -231,11 +238,18 @@ lock_take() {
     if [ -n "$host" ] && [ "$host" != "$(lock_host)" ]; then return 1; fi
     kill -0 "${pid:-0}" 2>/dev/null && return 1
   fi
-  rm -f "$f"
-  lock_write "$f"
+  lock_overwrite "$f"
 }
 
-lock_release() { rm -f "$1/.ca-sync/lock"; }
+lock_release() { remove_or_empty "$1/.ca-sync/lock"; }
+
+# Delete a file, or empty it where deleting isn't allowed (a scheduled run in the
+# desktop app without delete permission). Readers treat an empty file as absent.
+remove_or_empty() { rm -f "$1" 2>/dev/null || : > "$1" 2>/dev/null || true; }
+
+# Copy a working file over a state file in place. mv from the temp folder would
+# unlink the old file first, which fails where deleting isn't allowed.
+save_state() { [ -f "$1" ] && cat "$1" > "$2"; }
 
 is_ignored() {
   case "$1" in
@@ -259,6 +273,8 @@ purge_old() {
     [[ "$(basename "$d")" < "$cutoff" ]] && rm -rf "$d"
   done
   find "$state/tmp" -type f -mmin +60 -exec rm -f {} + 2>/dev/null
+  find "$state/tmp" -mindepth 1 -maxdepth 1 -type d -mmin +60 -exec rm -rf {} + 2>/dev/null
+  return 0
 }
 
 add_notice() {  # root folder level text
@@ -298,7 +314,9 @@ sync_root() {  # root onlyfile trigger -> exit code
 sync_locked() {
   local root="$1" only="$2" trigger="$3" token="$4"
   local state="$root/.ca-sync" base="${BASE_URL%/}"
-  local work; work="$(mktemp -d "$state/tmp/run.XXXXXX")"
+  # Working files live in the system temp folder, not the sync folder, so they can
+  # be removed even when the run isn't allowed to delete files in the sync folder.
+  local work; work="$(mktemp -d "${TMPDIR:-/tmp}/ca-sync.XXXXXX")"
   purge_old "$state"
 
   # Folders: what's on disk plus what the server named last time.
@@ -349,7 +367,7 @@ sync_locked() {
       "$(json_str "$([ "$IS_MAC" = 1 ] && echo macos || echo linux)")"
     [ -z "$OPT_SCAN" ] && printf '"root_len":%s,' "${#root}"
     [ -n "$scope_folder" ] && printf '"scope":{"usecase_folder":%s,"paths":[%s]},' "$(json_str "$scope_folder")" "$(json_str "$scope_path")"
-    [ -f "$state/pending-plan" ] && printf '"abandon_plan_id":%s,' "$(json_str "$(cat "$state/pending-plan")")"
+    [ -s "$state/pending-plan" ] && printf '"abandon_plan_id":%s,' "$(json_str "$(cat "$state/pending-plan")")"
     printf '"inventory":['
     while IFS=$'\t' read -r key size mtime folder relp sha; do
       if [ "$sha" = "-" ]; then sha="$(sha_of "$root/$key" 2>/dev/null)" || continue; fi
@@ -372,7 +390,7 @@ sync_locked() {
   local plan="$work/plan.txt" code
   code="$(api POST "$base/api/sync/v4/plan?format=lines" "$body" "$plan" "$token")"
   if [ "$code" != "200" ]; then rm -rf "$work"; exit_for_status "$code"; return $?; fi
-  [ -z "$only" ] && mv -f "$newcache" "$cache"
+  [ -z "$only" ] && save_state "$newcache" "$cache"
 
   local plan_id=""
   tr '\t' "$US" < "$plan" > "$plan.us"
@@ -387,8 +405,8 @@ sync_locked() {
       summary) case "$a" in *held_deletes=*) held="${a##*held_deletes=}"; held="${held%% *}" ;; esac ;;
     esac
   done < "$plan.us"
-  [ -z "$only" ] && mv -f "$work/folders.new" "$state/folders"
-  if [ -s "$work/actions" ]; then printf '%s' "$plan_id" > "$state/pending-plan"; else rm -f "$state/pending-plan"; fi
+  [ -z "$only" ] && save_state "$work/folders.new" "$state/folders"
+  if [ -s "$work/actions" ]; then printf '%s' "$plan_id" > "$state/pending-plan"; else remove_or_empty "$state/pending-plan"; fi
 
   local results="$work/results" n_pull=0 n_push=0 n_conf=0 n_del=0 n_skip=0 n_fail=0
   : > "$results"
@@ -444,7 +462,7 @@ sync_locked() {
       printf '%s COMMIT-FAILED device=%s status=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$DEVICE_NAME" "$code" >> "$state/sync.log"
       rm -rf "$work"; exit_for_status "$code"; return $?
     fi
-    rm -f "$state/pending-plan"
+    remove_or_empty "$state/pending-plan"
     tr '\t' "$US" < "$work/commit.txt" | while IFS="$US" read -r kind a b c; do
       [ "$kind" = notice ] && printf '%s%s%s%s%s\n' "$a" "$US" "$b" "$US" "$c" >> "$work/notices"
       [ "$kind" = result ] && [ "$b" = conflict ] && printf 'x\n' >> "$work/conflicts"

@@ -1,5 +1,17 @@
 # Context Accelerator Sync: changes
 
+## 4.1.2
+
+- The hourly task in the Claude desktop app no longer needs permission to delete files.
+  The app asked for it on every run, even with automatic approval on, so the hourly sync
+  stopped until someone clicked Allow. The new task prompt asks only for folder access.
+- Without delete permission, the sync still works: files are moved and overwritten (removed
+  files still go to `.ca-sync/trash`), the run lock is emptied instead of deleted, and each
+  run's working files live in the system temp folder. An empty lock counts as free on both
+  Windows and macOS.
+- The hash cache and folder list are saved by overwriting them in place, because moving a
+  file in from the temp folder would delete the old one first.
+
 ## 4.1.1
 
 - The scheduled task now finds the sync script when you connect the parent of your

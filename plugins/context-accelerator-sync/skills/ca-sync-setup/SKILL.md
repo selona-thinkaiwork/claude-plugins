@@ -70,7 +70,7 @@ The script is `${CLAUDE_PLUGIN_ROOT}/scripts/ca-sync`. Run it with `bash`, on Wi
    3. Paste this prompt, with `<folder>` filled in:
 
       > Sync my Context Accelerator folder `<folder>`, which is connected to this task and mounted under `$HOME/mnt`.
-      > 1. Allow deleting files in `<folder>` (sync replaces and removes files), using your tool for delete permission on a connected folder.
+      > 1. Make sure the connected folder is available to you (request access to it if you need to), but do NOT request permission to delete files: the sync works without it.
       > 2. In your Linux shell, run: `bash "$(find "$HOME/mnt" -maxdepth 5 -path '*/.ca-sync/bin/ca-sync' | head -n 1)" run --scan "$HOME/mnt" --quiet --trigger scheduled`
       > Do not read or modify any synced files yourself, and never read `.ca-sync/scheduled-token`.
       > If the exit code is 0, stop without comment.
@@ -82,6 +82,12 @@ The script is `${CLAUDE_PLUGIN_ROOT}/scripts/ca-sync`. Run it with `bash`, on Wi
       without it the hourly run stops at the first permission prompt and never syncs. If
       their organisation doesn't allow it, their Claude admin has to enable it.
    5. Click **Run now** once. Success is silent; anything else, they paste it to you.
+
+   Don't ask for delete permission in the task: the desktop app asks the user every run
+   ("for the rest of this session"), even with automatic approval, so hourly runs would
+   stall. Without it the folder is mounted read-write: the script moves and overwrites
+   files (removed files go to `.ca-sync/trash`), empties the lock instead of deleting it,
+   and keeps its working files in the system temp folder. Runs on the computer tidy up.
 
 7. **Explain in three lines:**
    - The folder is two-way: edit, add or delete files in any usecase folder and the

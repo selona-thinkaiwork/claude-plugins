@@ -7,7 +7,7 @@
       "name": "context-accelerator-sync",
       "source": "./plugins/context-accelerator-sync",
       "description": "Two-way sync between your Context Accelerator usecases and a folder on this computer.",
-      "version": "4.1.1"
+      "version": "4.1.2"
     }
   ]
 }

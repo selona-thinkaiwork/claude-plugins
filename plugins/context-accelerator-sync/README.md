@@ -20,6 +20,11 @@ transfer bytes and report back.
 (`dev-api.selona.ai`). Change both for a production release, bump `VERSION` and
 `.claude-plugin/plugin.json`, add a `CHANGELOG.md` entry.
 
+**Publishing:** clients install from the public repo
+[selona-thinkaiwork/claude-plugins](https://github.com/selona-thinkaiwork/claude-plugins)
+(`claude plugin marketplace add selona-thinkaiwork/claude-plugins`). Pushes to `develop`
+that touch this plugin are copied there by `.github/workflows/publish-plugins.yml`.
+
 **Debugging:** `CA_SYNC_DEBUG=1` prints a stack trace on errors (Windows);
 `CA_SYNC_FOREGROUND=1` runs hooks in the foreground. Logs: `<root>/.ca-sync/sync.log`.
 

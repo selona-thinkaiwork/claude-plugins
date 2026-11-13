@@ -25,7 +25,7 @@
 # Source is ASCII only: Windows PowerShell 5.1 reads BOM-less files as ANSI.
 
 $ErrorActionPreference = 'Stop'
-$ClientVersion = '4.1.1'
+$ClientVersion = '4.1.2'
 $Script:ExitCode = 0
 
 # -- Arguments ----------------------------------------------------------------
@@ -218,7 +218,10 @@ function Enter-Lock([string]$root) {
             $info = $null
             try { $info = Read-JsonFile $lock } catch { }
             $stale = $true
-            if ($info) {
+            # An empty lock is free: a scheduled run without delete permission empties it instead.
+            $len = 0; try { $len = (Get-Item -LiteralPath $lock -ErrorAction Stop).Length } catch { }
+            if ($len -eq 0) { $info = $null }
+            elseif ($info) {
                 $age = (Get-Date).ToUniversalTime() - [DateTime]::Parse($info['started_at']).ToUniversalTime()
                 $here = (-not $info['host']) -or ($info['host'] -eq $env:COMPUTERNAME)
                 # A lock from another machine (the scheduled-task VM) can only be judged by age.
@@ -227,6 +230,7 @@ function Enter-Lock([string]$root) {
             } else {
                 $stale = ((Get-Date) - (Get-Item -LiteralPath $lock).LastWriteTime).TotalMinutes -gt 10
             }
+            if ($len -eq 0) { $stale = $true }
             if (-not $stale) { return $false }
             Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
         }
@@ -477,7 +481,7 @@ function Invoke-Sync([string]$root, [string]$onlyFile, [string]$trigger) {
         # A run that died between plan and commit leaves its plan open; we hold
         # the lock, so tell the server to drop it instead of waiting for expiry.
         $pendingFile = Join-Path $state 'pending-plan'
-        if (Test-Path -LiteralPath $pendingFile) { $body['abandon_plan_id'] = ([IO.File]::ReadAllText($pendingFile)).Trim() }
+        if (Test-Path -LiteralPath $pendingFile) { $pending = ([IO.File]::ReadAllText($pendingFile)).Trim(); if ($pending) { $body['abandon_plan_id'] = $pending } }
         try { $plan = Invoke-Api 'POST' "$base/api/sync/v4/plan" $body $token }
         catch [SyncHttpError] { return (Exit-ForHttp $_.Exception) }
         if (@($plan['actions']).Count -gt 0) { [IO.File]::WriteAllText($pendingFile, [string]$plan['plan_id']) }
