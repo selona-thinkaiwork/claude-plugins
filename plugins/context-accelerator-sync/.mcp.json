@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "context-accelerator": {
+      "type": "http",
+      "url": "https://dev-api.selona.ai/mcp"
+    }
+  }
+}

@@ -1,0 +1,42 @@
+#!/bin/bash
+# Launcher for the Context Accelerator sync script: picks ca-sync.ps1 on
+# Windows and ca-sync.sh on macOS/Linux, and fills in the server URL.
+#
+#   ca-sync setup|run|hook|status|reset-token [options]
+#
+# "hook ..." runs the sync in the background and returns at once, so a
+# session start or a file edit never waits on the network.
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVER_URL="$(tr -d ' \r\n' < "$DIR/server-url" 2>/dev/null)"
+
+args=("$@")
+case "${1:-}" in
+  setup|reset-token)
+    has_base=0
+    for a in "$@"; do [ "$a" = "--base" ] && has_base=1; done
+    [ $has_base = 0 ] && [ -n "$SERVER_URL" ] && args+=(--base "$SERVER_URL") ;;
+esac
+
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*) WIN=1 ;;
+  *) [ "${OS:-}" = "Windows_NT" ] && WIN=1 || WIN=0 ;;
+esac
+
+run() {
+  if [ "$WIN" = 1 ]; then
+    local ps1="$DIR/ca-sync.ps1"
+    command -v cygpath >/dev/null 2>&1 && ps1="$(cygpath -w "$ps1")"
+    powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$ps1" "$@"
+  else
+    /bin/bash "$DIR/ca-sync.sh" "$@"
+  fi
+}
+
+if [ "${1:-}" = "hook" ] && [ -z "${CA_SYNC_FOREGROUND:-}" ]; then
+  input="$(cat)"
+  ( printf '%s' "$input" | run "${args[@]}" >/dev/null 2>&1 & ) >/dev/null 2>&1
+  exit 0
+fi
+
+run "${args[@]}"

@@ -1,0 +1,7 @@
+{
+  "name": "context-accelerator-sync",
+  "version": "4.1.1",
+  "description": "Two-way sync between your Context Accelerator usecases and a folder on this computer. Set it up once; Claude keeps it in step every hour, when a session starts and after it edits a file.",
+  "author": { "name": "Selona" },
+  "keywords": ["context-accelerator", "sync", "folder"]
+}

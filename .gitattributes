@@ -1,0 +1,5 @@
+# Bash scripts must stay LF or they break on macOS (bash sees \r). PowerShell and cmd stay CRLF.
+*.sh text eol=lf
+plugins/context-accelerator-sync/scripts/ca-sync text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
